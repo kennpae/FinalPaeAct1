@@ -81,6 +81,35 @@
         })
     }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+    let logoutTimeout;
+    let sessionLifetimeMinutes = {{ config('session.lifetime') }};
+    let logoutAfter = sessionLifetimeMinutes * 60 * 1000; // in ms
+
+    function resetTimer() {
+        clearTimeout(logoutTimeout);
+        logoutTimeout = setTimeout(() => {
+            Swal.fire({
+                icon: 'info',
+                title: 'Logged Out',
+                text: 'You were logged out due to inactivity.',
+                showConfirmButton: false,
+                timer: 3000
+            }).then(() => {
+                window.location.href = "/logout";
+            });
+        }, logoutAfter);
+    }
+
+    // Reset timer on activity
+    ['click', 'mousemove', 'keypress', 'scroll'].forEach(event => {
+        window.addEventListener(event, resetTimer);
+    });
+
+    // Start the timer
+    resetTimer();
+</script>
 
 </body>
 </html>

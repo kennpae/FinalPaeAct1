@@ -52,8 +52,9 @@ Route::get('/login', function () {
 
 Route::post('/login', function (Request $request) {
     $credentials = $request->only('email', 'password');
+    $user = User::where('email', $request->email)->first();
 
-    // Validate captcha first
+    // ✅ reCAPTCHA check
     $response = Http::asForm()->post('https://www.google.com/recaptcha/api/siteverify', [
         'secret' => env('RECAPTCHA_SECRET_KEY'),
         'response' => $request->input('g-recaptcha-response'),
@@ -64,21 +65,20 @@ Route::post('/login', function (Request $request) {
         return back()->with('error', 'Captcha verification failed.');
     }
 
-    // Check if account is locked
-    $user = User::where('email', $request->email)->first();
+    // ✅ Account lock check BEFORE Auth::attempt
     if ($user && $user->is_locked) {
         return back()->with('error', 'Account is locked due to multiple failed login attempts.');
     }
 
-    if (Auth::attempt($credentials)) {
+    if ($user && Auth::attempt($credentials)) {
         $request->session()->regenerate();
 
-        // ✅ Reset failed attempts on successful login
+        // ✅ Reset failed attempts
         $user->update([
             'failed_attempts' => 0,
         ]);
 
-        // ✅ Log Successful Login
+        // ✅ Log successful login
         DB::table('login_logs')->insert([
             'email' => $request->email,
             'ip_address' => $request->ip(),
@@ -87,25 +87,21 @@ Route::post('/login', function (Request $request) {
             'updated_at' => now(),
         ]);
 
-        if (Auth::user()->role === 'admin') {
-            return redirect('/admin')->with('success', 'Welcome back, Admin!');
-        } else {
-            return redirect('/dashboard')->with('success', 'Welcome back!');
-        }
+        return redirect(Auth::user()->role === 'admin' ? '/admin' : '/dashboard')
+            ->with('success', 'Welcome back!');
     }
 
-    // ✅ Handle failed login
+    // ✅ Increment failed attempts and lock if >= 3
     if ($user) {
         $user->increment('failed_attempts');
+        $user->refresh(); // Refresh from DB
 
         if ($user->failed_attempts >= 3) {
-            $user->update([
-                'is_locked' => true,
-            ]);
+            $user->update(['is_locked' => true]);
         }
     }
 
-    // ✅ Log Failed Login
+    // ✅ Log failed login
     DB::table('login_logs')->insert([
         'email' => $request->email,
         'ip_address' => $request->ip(),
@@ -116,6 +112,7 @@ Route::post('/login', function (Request $request) {
 
     return back()->with('error', 'Invalid credentials');
 })->middleware('throttle:5,1');
+
 
 
 
@@ -152,3 +149,9 @@ Route::post('/logout', function (Request $request) {
     $request->session()->regenerateToken();
     return redirect('/login');
 })->name('logout');
+Route::get('/logout', function (Request $request) {
+    Auth::logout();
+    $request->session()->invalidate();
+    $request->session()->regenerateToken();
+    return redirect('/login')->with('success', 'You were logged out due to inactivity.');
+});
